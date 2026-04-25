@@ -9,10 +9,10 @@ interface Message {
 }
 
 const QUICK_PROMPTS = [
-  "What's a fair price for direct cremation?",
+  "I'm in Los Angeles with a budget of $3,000",
+  "Looking for affordable cremation near me",
+  "What's the cheapest option in LA?",
   "Do I have to pay for embalming?",
-  "What's the cheapest option near me?",
-  "Can I bring my own casket?",
 ];
 
 function renderMarkdown(text: string) {
@@ -47,7 +47,7 @@ export default function ChatBot({ location: propLocation }: { location?: string 
     {
       role: "assistant",
       content:
-        "Hello. I'm here to help your family understand funeral pricing and your rights.\n\n• What city or ZIP code are you searching in?\n• Ask me about specific services\n• I can explain what you're legally entitled to",
+        "Hello. I'm here to help your family find the right funeral home with dignity and clarity.\n\nTo get started, I have a few questions:\n\n• **What city or ZIP code are you in?**\n• What is your approximate **budget**?\n• Do you prefer cremation, burial, or are you still deciding?\n\nOnce I know a little more, I'll recommend the best options near you.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -62,6 +62,12 @@ export default function ChatBot({ location: propLocation }: { location?: string 
   useEffect(() => {
     if (open) setTimeout(() => inputRef.current?.focus(), 120);
   }, [open]);
+
+  useEffect(() => {
+    const handler = () => setOpen(true);
+    window.addEventListener("eulogy:open-chat", handler);
+    return () => window.removeEventListener("eulogy:open-chat", handler);
+  }, []);
 
   async function sendMessage(text?: string) {
     const content = (text ?? input).trim();

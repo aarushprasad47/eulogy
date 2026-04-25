@@ -21,18 +21,30 @@ function detectLocation(messages: { role: string; content: string }[]): string |
 }
 
 async function fetchLocalHomes(location: string) {
-  // All homes in the area, sorted so priced ones come first
+  const isZip = /^\d{5}$/.test(location.trim());
   return prisma.funeralHome.findMany({
     include: { services: { take: 12, orderBy: { price: "asc" } } },
     where: {
       OR: [
         { city: { contains: location } },
         { state: { equals: location.length === 2 ? location.toUpperCase() : undefined } },
-        { zip: location },
+        { zip: isZip ? location : undefined },
+        // Metro area fuzzy: LA, Los Angeles → also Glendale, Burbank, etc.
+        ...(location.toLowerCase().includes("los angeles") || location.toLowerCase() === "la"
+          ? [
+              { city: { contains: "Glendale" } },
+              { city: { contains: "Burbank" } },
+              { city: { contains: "Whittier" } },
+              { city: { contains: "Compton" } },
+              { city: { contains: "Hawthorne" } },
+              { city: { contains: "Monterey Park" } },
+              { city: { contains: "Manhattan Beach" } },
+            ]
+          : []),
       ],
     },
     orderBy: [{ services: { _count: "desc" } }, { name: "asc" }],
-    take: 8,
+    take: 10,
   });
 }
 
@@ -104,9 +116,9 @@ export async function POST(request: NextRequest) {
 
   const priceContext = buildPriceContext(homes, location);
 
-  const systemPrompt = `You are Eulogy's compassionate funeral pricing assistant. You help grieving families find funeral homes in their area, understand costs, and know their legal rights.
+  const systemPrompt = `You are Eulogy's compassionate funeral planning assistant. Your goal is to guide grieving families step-by-step to find the best funeral home for their needs and budget.
 
-DATABASE COVERAGE: Our database has 3,000+ US funeral homes with names, addresses, and phone numbers. Pricing data is available for a growing subset — when a home shows "call to request their GPL," that means pricing isn't in our system yet but the home exists and can be contacted.
+DATABASE COVERAGE: Our database has 3,000+ US funeral homes. Pricing data is available for a growing subset — when a home shows "call to request their GPL," they exist in our system but pricing hasn't been collected yet.
 
 KEY LEGAL FACTS:
 - The FTC Funeral Rule requires funeral homes to provide a General Price List (GPL) to ANYONE who asks — they cannot legally refuse.
@@ -115,15 +127,27 @@ KEY LEGAL FACTS:
 - You can decline any individual service.
 - Typical direct cremation: $700–$2,500. Traditional burial: $7,000–$15,000.
 
-${priceContext ? priceContext : "No location set yet — see instructions below."}
+${priceContext ? priceContext : "No location data yet — ask for location."}
 
-BEHAVIOR RULES:
-1. If the user hasn't provided a city, state, or ZIP code, ask for it before answering location-based questions. Say something like: "To find funeral homes near you, what city or ZIP code are you in?"
-2. If you have local homes (even without pricing), list them with their phone numbers so families can call.
-3. For homes without pricing in our database, tell the user to call and specifically ask for the "General Price List" — the funeral home is legally required to provide it.
-4. Be warm, brief, and use bullet points.
-5. Always highlight the cheapest option when prices are available.
-6. Warn about common upsells: unnecessary embalming, overpriced caskets, "package deals" that bundle unwanted services.`;
+CONVERSATION FLOW — follow these steps in order:
+1. GATHER LOCATION: If you don't know their city/ZIP, ask warmly. This is required before recommending homes.
+2. GATHER BUDGET: Ask for their approximate budget if not mentioned. Common ranges: under $2,000 / $2,000–$5,000 / $5,000–$10,000 / over $10,000.
+3. GATHER PREFERENCE: Ask if they prefer cremation, burial, or are undecided.
+4. RECOMMEND: Once you have location + budget + preference, give a SPECIFIC recommendation:
+   - Name the top 1–2 funeral homes that best match
+   - State why (price, location, reviews)
+   - Include their phone number
+   - Give a clear cost estimate for the service type they want
+   - Tell them exactly what to say when they call: "Please provide your General Price List"
+
+RECOMMENDATION RULES:
+- Always match budget: if budget is under $2,000, recommend direct cremation providers only
+- For LA/Southern California, we have pricing data — use it to make specific comparisons
+- Be direct: say "I recommend X because..." not just "you might consider..."
+- Highlight if a home is the lowest-cost option for their service type
+- Warn about upsells: unnecessary embalming ($500–$900), overpriced caskets, "package deals"
+
+TONE: Warm, clear, and brief. Use bullet points. Never use jargon without explaining it.`;
 
   // Keep last 6 messages, strip leading assistant messages for the model
   const recent = messages.slice(-6);

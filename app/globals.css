@@ -5,18 +5,18 @@
   --cream:        #EEF2F8;
   --paper:        #F4F7FB;
   --peach:        #E2EAF4;
-  --brown:        #2D4A6B;
+  --brown:        #4472A8;
   --taupe:        #6B85A0;
   --muted:        #8FA3B8;
   --border:       #D8E4EF;
-  --amber:        #2D4A6B;
+  --amber:        #4472A8;
   --amber-light:  #E2EAF4;
   --sage:         #3D6B4F;
   --sage-light:   #EAF2ED;
   --blue-pale:    #C8D8EB;
   --icon-bg:      #E2EAF4;
-  --navy:         #2D4A6B;
-  --navy-hover:   #3B5F82;
+  --navy:         #4472A8;
+  --navy-hover:   #5080B8;
 }
 
 *, *::before, *::after { box-sizing: border-box; }
