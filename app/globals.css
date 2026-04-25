@@ -21,10 +21,13 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; }
+html {
+  scroll-behavior: smooth;
+  background: var(--cream); /* fallback behind fixed flower */
+}
 
 body {
-  background: var(--cream);
+  background: transparent;
   color: var(--brown);
   font-family: 'Inter', system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
