@@ -121,7 +121,7 @@ export default function ChatBot({ location: propLocation }: { location?: string 
         <button
           onClick={() => setOpen(true)}
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-full px-5 py-3 text-white shadow-xl transition-all hover:shadow-2xl hover:-translate-y-0.5 animate-fade-up"
-          style={{ background: "var(--amber)", animationDelay: "0.8s" }}
+          style={{ background: "var(--navy)", animationDelay: "0.8s" }}
         >
           <Flower2 className="h-4 w-4" />
           <span className="text-sm font-medium">Ask Eulogy</span>
