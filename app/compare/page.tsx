@@ -13,8 +13,9 @@ export default async function ComparePage({
 
   const selectedIds = ids ? ids.split(",").filter(Boolean) : [];
 
-  // Fetch all homes for the selector
+  // Only show homes that actually have price data
   const allHomes = await prisma.funeralHome.findMany({
+    where: { services: { some: {} } },
     select: { id: true, name: true, city: true, state: true },
     orderBy: { name: "asc" },
   });
