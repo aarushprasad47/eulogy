@@ -65,30 +65,44 @@ GUIDELINES:
     systemInstruction: systemPrompt,
   });
 
-  // Convert message history to Gemini format (exclude the last user message)
-  const history = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
+  // Gemini requires history to start with a user message and alternate user/model.
+  // Drop any leading assistant messages (e.g. the UI greeting) and the final user message.
+  const prior = messages.slice(0, -1).filter(
+    (m: { role: string }) => m.role === "user" || m.role === "assistant"
+  );
+
+  // Find the first user message index so history starts with user
+  const firstUserIdx = prior.findIndex((m: { role: string }) => m.role === "user");
+  const validHistory = firstUserIdx === -1 ? [] : prior.slice(firstUserIdx);
+
+  const history = validHistory.map((m: { role: string; content: string }) => ({
     role: m.role === "assistant" ? "model" : "user",
     parts: [{ text: m.content }],
   }));
 
   const lastMessage = messages[messages.length - 1];
 
-  const chat = model.startChat({ history });
-  const result = await chat.sendMessageStream(lastMessage.content);
+  try {
+    const chat = model.startChat({ history });
+    const result = await chat.sendMessageStream(lastMessage.content);
 
-  const encoder = new TextEncoder();
+    const encoder = new TextEncoder();
 
-  const readableStream = new ReadableStream({
-    async start(controller) {
-      for await (const chunk of result.stream) {
-        const text = chunk.text();
-        if (text) controller.enqueue(encoder.encode(text));
-      }
-      controller.close();
-    },
-  });
+    const readableStream = new ReadableStream({
+      async start(controller) {
+        for await (const chunk of result.stream) {
+          const text = chunk.text();
+          if (text) controller.enqueue(encoder.encode(text));
+        }
+        controller.close();
+      },
+    });
 
-  return new Response(readableStream, {
-    headers: { "Content-Type": "text/plain; charset=utf-8" },
-  });
+    return new Response(readableStream, {
+      headers: { "Content-Type": "text/plain; charset=utf-8" },
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "AI error";
+    return Response.json({ error: message }, { status: 500 });
+  }
 }
