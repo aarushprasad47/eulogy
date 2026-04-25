@@ -61,7 +61,7 @@ GUIDELINES:
 - Keep responses concise and scannable with bullet points.`;
 
   const model = genAI.getGenerativeModel({
-    model: "gemini-1.5-flash",
+    model: "gemini-2.0-flash",
     systemInstruction: systemPrompt,
   });
 
