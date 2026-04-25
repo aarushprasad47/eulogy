@@ -2,26 +2,17 @@
 @import "tailwindcss";
 
 :root {
-  /* Page backgrounds */
   --cream:        #EEF2F8;
   --paper:        #F4F7FB;
   --peach:        #E2EAF4;
-
-  /* Text */
   --brown:        #2D4A6B;
   --taupe:        #6B85A0;
   --muted:        #8FA3B8;
-
-  /* UI */
   --border:       #D8E4EF;
   --amber:        #2D4A6B;
   --amber-light:  #E2EAF4;
-
-  /* Accent greens kept for "lowest price" badges */
   --sage:         #3D6B4F;
   --sage-light:   #EAF2ED;
-
-  /* Blue-specific extras */
   --blue-pale:    #C8D8EB;
   --icon-bg:      #E2EAF4;
   --navy:         #2D4A6B;
@@ -89,15 +80,20 @@ body {
 /* ── Cards ────────────────────────────────── */
 
 .card {
-  background: white;
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid var(--border);
   border-radius: 1.25rem;
   box-shadow: 0 2px 12px -4px rgba(45, 74, 107, 0.08);
-  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  transition: background 0.35s ease, backdrop-filter 0.35s ease,
+              box-shadow 0.35s ease, transform 0.35s ease, border-color 0.35s ease;
 }
 
 .card:hover {
-  box-shadow: 0 10px 36px -8px rgba(45, 74, 107, 0.14);
+  background: rgba(255, 255, 255, 0.38);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border-color: rgba(255, 255, 255, 0.6);
+  box-shadow: 0 12px 40px -8px rgba(45, 74, 107, 0.14);
   transform: translateY(-2px);
 }
 
