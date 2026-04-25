@@ -1,20 +1,25 @@
 import { prisma } from "@/lib/prisma";
 import FuneralHomeCard from "@/components/FuneralHomeCard";
+import Link from "next/link";
 
 interface Props {
   searchParams: Promise<{ q?: string; category?: string }>;
 }
 
+const STAGGER = [
+  "stagger-1","stagger-2","stagger-3","stagger-4","stagger-5","stagger-6",
+  "stagger-7","stagger-8","stagger-9","stagger-10","stagger-11","stagger-12",
+];
+
 export default async function SearchResults({ searchParams }: Props) {
   const { q, category } = await searchParams;
 
   const where: Record<string, unknown> = {};
-
   if (q) {
     where.OR = [
       { name: { contains: q } },
       { city: { contains: q } },
-      { zip: { contains: q } },
+      { zip:  { contains: q } },
       { state: { contains: q } },
     ];
   }
@@ -24,18 +29,24 @@ export default async function SearchResults({ searchParams }: Props) {
     include: {
       services: category ? { where: { category } } : { take: 6 },
     },
-    orderBy: { name: "asc" },
+    orderBy: [{ services: { _count: "desc" } }, { name: "asc" }],
     take: 24,
   });
 
   if (homes.length === 0 && q) {
     return (
-      <div className="py-16 text-center">
-        <p className="text-stone-500">
-          No funeral homes found for &ldquo;{q}&rdquo;. Try a different city or ZIP code.
+      <div
+        className="animate-fade-in rounded-2xl p-16 text-center"
+        style={{ background: "white", border: "1px solid var(--border)" }}
+      >
+        <p className="text-base font-medium" style={{ color: "var(--brown)" }}>
+          No results for &ldquo;{q}&rdquo;
         </p>
-        <p className="mt-2 text-sm text-stone-400">
-          Want to add a funeral home? <a href="/register" className="underline">Submit prices here.</a>
+        <p className="mt-2 text-sm" style={{ color: "var(--muted)" }}>
+          Try a different city or ZIP code, or{" "}
+          <Link href="/register" className="underline" style={{ color: "var(--amber)" }}>
+            add a funeral home
+          </Link>.
         </p>
       </div>
     );
@@ -47,23 +58,31 @@ export default async function SearchResults({ searchParams }: Props) {
 
   return (
     <div>
-      <div className="mb-5 flex items-center justify-between">
-        <h2 className="font-semibold text-stone-900">{title}</h2>
-        <a href="/compare" className="text-sm text-stone-500 underline hover:text-stone-800">
-          Side-by-side compare →
-        </a>
+      <div className="mb-6 flex items-center justify-between">
+        <h2 className="font-semibold" style={{ color: "var(--brown)" }}>
+          {title}
+        </h2>
+        <Link
+          href="/compare"
+          className="flex items-center gap-1 text-sm transition-colors hover:opacity-80"
+          style={{ color: "var(--amber)" }}
+        >
+          Compare side-by-side →
+        </Link>
       </div>
 
       {homes.length === 0 ? (
-        <div className="py-16 text-center text-stone-400">
+        <div className="py-16 text-center" style={{ color: "var(--muted)" }}>
           <p>No funeral homes in the database yet.</p>
           <p className="mt-2 text-sm">
-            <a href="/register" className="underline">Be the first to add your funeral home.</a>
+            <Link href="/register" className="underline" style={{ color: "var(--amber)" }}>
+              Be the first to list your funeral home.
+            </Link>
           </p>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {homes.map((h) => (
+          {homes.map((h, i) => (
             <FuneralHomeCard
               key={h.id}
               id={h.id}
@@ -79,6 +98,7 @@ export default async function SearchResults({ searchParams }: Props) {
               dataSource={h.dataSource}
               services={h.services}
               highlightCategory={category}
+              animationDelay={`${Math.min(i, 11) * 0.05}s`}
             />
           ))}
         </div>
