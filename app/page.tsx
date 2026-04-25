@@ -89,11 +89,12 @@ export default function Home() {
             <div className="hidden lg:block animate-fade-in" style={{ animationDelay: "0.3s" }}>
               <div
                 style={{
-                  width: 420,
-                  height: 540,
-                  borderRadius: "210px 210px 0 0",
+                  width: 360,
+                  height: 480,
+                  borderRadius: "180px 180px 0 0",
                   overflow: "hidden",
                   position: "relative",
+                  margin: "0 auto",
                   boxShadow: "0 20px 60px -12px rgba(68,114,168,0.22)",
                 }}
               >
