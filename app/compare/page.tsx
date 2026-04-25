@@ -81,7 +81,7 @@ export default async function ComparePage({
         </p>
       </div>
 
-      <div className="animate-fade-up" style={{ animationDelay: "0.1s" }}>
+      <div className="animate-fade-up" style={{ animationDelay: "0.1s", position: "relative", zIndex: 10 }}>
         <CompareSelector allHomes={allHomes} selectedIds={selectedIds} />
       </div>
 

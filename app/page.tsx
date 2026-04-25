@@ -94,12 +94,12 @@ export default function Home() {
                   borderRadius: "190px 190px 0 0",
                   overflow: "hidden",
                   position: "relative",
-                  boxShadow: "0 20px 60px -12px rgba(68,114,168,0.18)",
+                  boxShadow: "0 20px 60px -12px rgba(68,114,168,0.22)",
                 }}
               >
                 <Image
-                  src="/flower.png"
-                  alt="White flowers"
+                  src="/hero-casket.png"
+                  alt="Funeral service"
                   fill
                   className="object-cover object-center"
                 />

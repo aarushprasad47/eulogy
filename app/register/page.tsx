@@ -11,7 +11,14 @@ export default function RegisterPage() {
         </p>
       </div>
 
-      <div className="mb-6 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">
+      <div
+        className="mb-6 rounded-xl p-4 text-sm"
+        style={{
+          background: "rgba(68,114,168,0.08)",
+          border: "1px solid rgba(68,114,168,0.22)",
+          color: "var(--navy)",
+        }}
+      >
         <strong>Why list on Eulogy?</strong> Families are more likely to choose funeral homes that
         are upfront about pricing. Transparency builds trust.
       </div>

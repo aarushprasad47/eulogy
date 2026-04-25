@@ -22,9 +22,9 @@ export default function Header() {
           <Image
             src="/logo.png"
             alt="Eulogy Funeral Services"
-            width={260}
-            height={96}
-            className="h-24 w-auto"
+            width={320}
+            height={118}
+            className="h-28 w-auto"
             priority
           />
         </Link>

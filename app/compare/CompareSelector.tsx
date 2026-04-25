@@ -123,7 +123,7 @@ export default function CompareSelector({
           {open && suggestions.length > 0 && (
             <div
               ref={dropdownRef}
-              className="absolute z-10 mt-1 w-full rounded-xl border border-stone-200 bg-white shadow-lg overflow-hidden"
+              className="absolute z-50 mt-1 w-full rounded-xl border border-stone-200 bg-white shadow-lg overflow-hidden"
             >
               {suggestions.map((h) => (
                 <button
@@ -141,7 +141,7 @@ export default function CompareSelector({
           {open && query && suggestions.length === 0 && (
             <div
               ref={dropdownRef}
-              className="absolute z-10 mt-1 w-full rounded-xl border border-stone-200 bg-white shadow-lg px-4 py-3 text-sm text-stone-400"
+              className="absolute z-50 mt-1 w-full rounded-xl border border-stone-200 bg-white shadow-lg px-4 py-3 text-sm text-stone-400"
             >
               No matches for &ldquo;{query}&rdquo;
             </div>
