@@ -1,52 +1,20 @@
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import Groq from "groq-sdk";
 import { prisma } from "@/lib/prisma";
 import { NextRequest } from "next/server";
 
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
+const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// Pull location hints from recent messages
 function detectLocation(messages: { role: string; content: string }[]): string | null {
-  const text = messages
-    .slice(-4)
-    .map((m) => m.content)
-    .join(" ");
-  // ZIP code
+  const text = messages.slice(-4).map((m) => m.content).join(" ");
   const zip = text.match(/\b(\d{5})\b/)?.[1];
   if (zip) return zip;
-  // "in [City]" / "near [City]" / "I'm in [City, ST]"
   const city = text.match(/\b(?:in|near|around|from)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?(?:,\s*[A-Z]{2})?)/)?.[1];
   if (city) return city;
   return null;
 }
 
-function buildPriceContext(homes: Awaited<ReturnType<typeof fetchHomes>>) {
-  if (homes.length === 0) return "No funeral home price data found for this location yet.";
-  return homes
-    .map((h) => {
-      const lines = [`**${h.name}** — ${h.city}, ${h.state} ${h.zip}`];
-      if (h.phone) lines.push(`Phone: ${h.phone}`);
-      if (h.services.length === 0) {
-        lines.push("Services: pricing not yet available");
-      } else {
-        const svcLines = h.services.slice(0, 10).map((s) => {
-          const p =
-            s.price != null
-              ? `$${s.price.toLocaleString()}`
-              : s.priceMin != null
-              ? `$${s.priceMin.toLocaleString()}–$${s.priceMax?.toLocaleString()}`
-              : "call for pricing";
-          return `  - ${s.name}: ${p}`;
-        });
-        lines.push("Services:\n" + svcLines.join("\n"));
-      }
-      return lines.join("\n");
-    })
-    .join("\n\n");
-}
-
 async function fetchHomes(location: string | null) {
   if (!location) {
-    // No location: return homes with the most services as examples
     return prisma.funeralHome.findMany({
       include: { services: { take: 10 } },
       where: { services: { some: {} } },
@@ -68,7 +36,28 @@ async function fetchHomes(location: string | null) {
   });
 }
 
-// Stream an error message to the client instead of returning JSON
+function buildPriceContext(homes: Awaited<ReturnType<typeof fetchHomes>>, location: string | null) {
+  if (homes.length === 0) return "No funeral home price data found for this location yet.";
+  const header = `Price data for ${location ?? "your area"}:`;
+  const body = homes.map((h) => {
+    const lines = [`${h.name} — ${h.city}, ${h.state} ${h.zip}`];
+    if (h.phone) lines.push(`Phone: ${h.phone}`);
+    if (h.services.length === 0) {
+      lines.push("Pricing not yet available.");
+    } else {
+      h.services.slice(0, 10).forEach((s) => {
+        const p =
+          s.price != null ? `$${s.price.toLocaleString()}`
+          : s.priceMin != null ? `$${s.priceMin.toLocaleString()}–$${s.priceMax?.toLocaleString()}`
+          : "call for pricing";
+        lines.push(`  - ${s.name}: ${p}`);
+      });
+    }
+    return lines.join("\n");
+  }).join("\n\n");
+  return `${header}\n\n${body}`;
+}
+
 function streamError(message: string) {
   const encoder = new TextEncoder();
   return new Response(
@@ -87,53 +76,49 @@ export async function POST(request: NextRequest) {
 
   const location = propLocation || detectLocation(messages);
   const homes = await fetchHomes(location);
-  const priceContext = buildPriceContext(homes);
+  const priceContext = buildPriceContext(homes, location);
 
   const systemPrompt = `You are Eulogy's compassionate pricing assistant. Help grieving families understand funeral costs and their rights.
 
 KEY LEGAL FACTS:
 - The FTC Funeral Rule requires funeral homes to provide a General Price List (GPL) to anyone who asks — they cannot refuse.
-- Families can supply their own casket (bought online) and the funeral home must accept it.
+- Families can supply their own casket and the funeral home must accept it.
 - Embalming is NOT legally required in most states.
 - You can decline any service you don't want.
 
-PRICE DATA FOR ${location ? location.toUpperCase() : "YOUR AREA"}:
 ${priceContext}
 
 RESPONSE RULES:
-- Be warm, brief, and scannable (use bullet points).
-- If the user mentions a city or ZIP, acknowledge you're showing data for that area.
-- Highlight the cheapest option when comparing.
+- Be warm, brief, and scannable. Use bullet points.
+- Highlight the cheapest option when comparing prices.
 - Warn about common upsells (unnecessary embalming, expensive caskets).
 - If no price data exists for their area, tell them to call and ask for the GPL by name.`;
 
-  const model = genAI.getGenerativeModel({
-    model: "gemini-2.0-flash",
-    systemInstruction: systemPrompt,
-  });
-
-  // Only keep last 6 messages to limit token use; strip leading assistant messages for Gemini
+  // Keep last 6 messages, ensure history starts with user role
   const recent = messages.slice(-6);
   const firstUserIdx = recent.findIndex((m: { role: string }) => m.role === "user");
-  const prior = firstUserIdx === -1 ? [] : recent.slice(firstUserIdx, -1);
-
-  const history = prior.map((m: { role: string; content: string }) => ({
-    role: m.role === "assistant" ? "model" : "user",
-    parts: [{ text: m.content }],
-  }));
-
-  const lastMessage = messages[messages.length - 1];
+  const history = (firstUserIdx === -1 ? [] : recent.slice(firstUserIdx)).map(
+    (m: { role: string; content: string }) => ({
+      role: m.role === "assistant" ? ("assistant" as const) : ("user" as const),
+      content: m.content,
+    })
+  );
 
   try {
-    const chat = model.startChat({ history });
-    const result = await chat.sendMessageStream(lastMessage.content);
-    const encoder = new TextEncoder();
+    const stream = await groq.chat.completions.create({
+      model: "llama-3.3-70b-versatile",
+      messages: [{ role: "system", content: systemPrompt }, ...history],
+      stream: true,
+      max_tokens: 1024,
+      temperature: 0.7,
+    });
 
+    const encoder = new TextEncoder();
     return new Response(
       new ReadableStream({
         async start(controller) {
-          for await (const chunk of result.stream) {
-            const text = chunk.text();
+          for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content ?? "";
             if (text) controller.enqueue(encoder.encode(text));
           }
           controller.close();
@@ -143,14 +128,14 @@ RESPONSE RULES:
     );
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (msg.includes("429") || msg.includes("quota")) {
+    if (msg.includes("429") || msg.includes("rate limit")) {
       return streamError(
-        "I've reached my usage limit for now — the free tier resets daily. " +
-        "In the meantime, you can:\n\n" +
-        "• Browse funeral homes directly on the **Compare** page\n" +
-        "• Call any home and ask for their **General Price List** by name (they must provide it under the FTC Funeral Rule)\n" +
+        "I'm at my usage limit right now.\n\n" +
+        "In the meantime:\n" +
+        "• Browse the **Compare** page to see prices side-by-side\n" +
+        "• Call any funeral home and ask for their **General Price List** — they must provide it under the FTC Funeral Rule\n" +
         "• Direct cremation typically runs **$700–$2,500** depending on your area\n\n" +
-        "Try again in a few hours and I'll be back!"
+        "Try again in a few minutes!"
       );
     }
     return streamError("Sorry, something went wrong. Please try again in a moment.");
