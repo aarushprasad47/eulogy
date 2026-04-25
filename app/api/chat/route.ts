@@ -5,57 +5,71 @@ import { NextRequest } from "next/server";
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 function detectLocation(messages: { role: string; content: string }[]): string | null {
-  const text = messages.slice(-4).map((m) => m.content).join(" ");
+  const text = messages.slice(-6).map((m) => m.content).join(" ");
+  // ZIP code
   const zip = text.match(/\b(\d{5})\b/)?.[1];
   if (zip) return zip;
-  const city = text.match(/\b(?:in|near|around|from)\s+([A-Z][a-z]+(?:\s[A-Z][a-z]+)?(?:,\s*[A-Z]{2})?)/)?.[1];
+  // "in/near/around/from City" or "City, ST"
+  const city = text.match(
+    /\b(?:in|near|around|from|at)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?(?:,\s*[A-Z]{2})?)/
+  )?.[1];
   if (city) return city;
+  // bare "City, ST"
+  const cityState = text.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)?),\s*([A-Z]{2})\b/)?.[0];
+  if (cityState) return cityState;
   return null;
 }
 
-async function fetchHomes(location: string | null) {
-  if (!location) {
-    return prisma.funeralHome.findMany({
-      include: { services: { take: 10 } },
-      where: { services: { some: {} } },
-      orderBy: { name: "asc" },
-      take: 5,
-    });
-  }
+async function fetchLocalHomes(location: string) {
+  // All homes in the area, sorted so priced ones come first
   return prisma.funeralHome.findMany({
-    include: { services: { take: 10 } },
+    include: { services: { take: 12, orderBy: { price: "asc" } } },
     where: {
       OR: [
         { city: { contains: location } },
-        { state: { contains: location } },
+        { state: { equals: location.length === 2 ? location.toUpperCase() : undefined } },
         { zip: location },
-        { name: { contains: location } },
       ],
     },
+    orderBy: [{ services: { _count: "desc" } }, { name: "asc" }],
+    take: 8,
+  });
+}
+
+async function fetchHomesWithPrices() {
+  // Fallback: sample of homes that actually have price data
+  return prisma.funeralHome.findMany({
+    include: { services: { take: 12, orderBy: { price: "asc" } } },
+    where: { services: { some: {} } },
+    orderBy: { name: "asc" },
     take: 5,
   });
 }
 
-function buildPriceContext(homes: Awaited<ReturnType<typeof fetchHomes>>, location: string | null) {
-  if (homes.length === 0) return "No funeral home price data found for this location yet.";
-  const header = `Price data for ${location ?? "your area"}:`;
+function buildPriceContext(
+  homes: Awaited<ReturnType<typeof fetchLocalHomes>>,
+  location: string | null
+): string {
+  if (homes.length === 0) return "";
+  const label = location ? `Funeral homes in/near "${location}"` : "Sample homes with pricing data";
   const body = homes.map((h) => {
-    const lines = [`${h.name} — ${h.city}, ${h.state} ${h.zip}`];
-    if (h.phone) lines.push(`Phone: ${h.phone}`);
+    const parts: string[] = [`• ${h.name} — ${h.city}, ${h.state}`];
+    if (h.phone) parts.push(`  Phone: ${h.phone}`);
+    if (h.website) parts.push(`  Website: ${h.website}`);
     if (h.services.length === 0) {
-      lines.push("Pricing not yet available.");
+      parts.push(`  Pricing: not yet in our database — call to request their GPL`);
     } else {
-      h.services.slice(0, 10).forEach((s) => {
+      h.services.forEach((s) => {
         const p =
           s.price != null ? `$${s.price.toLocaleString()}`
           : s.priceMin != null ? `$${s.priceMin.toLocaleString()}–$${s.priceMax?.toLocaleString()}`
           : "call for pricing";
-        lines.push(`  - ${s.name}: ${p}`);
+        parts.push(`  - ${s.name}: ${p}`);
       });
     }
-    return lines.join("\n");
+    return parts.join("\n");
   }).join("\n\n");
-  return `${header}\n\n${body}`;
+  return `${label}:\n\n${body}`;
 }
 
 function streamError(message: string) {
@@ -75,26 +89,43 @@ export async function POST(request: NextRequest) {
   const { messages, location: propLocation } = await request.json();
 
   const location = propLocation || detectLocation(messages);
-  const homes = await fetchHomes(location);
+
+  // Fetch relevant homes
+  let homes: Awaited<ReturnType<typeof fetchLocalHomes>> = [];
+  if (location) {
+    homes = await fetchLocalHomes(location);
+    // If the location matched nothing, fall back to priced homes as examples
+    if (homes.length === 0) {
+      homes = await fetchHomesWithPrices();
+    }
+  } else {
+    homes = await fetchHomesWithPrices();
+  }
+
   const priceContext = buildPriceContext(homes, location);
 
-  const systemPrompt = `You are Eulogy's compassionate pricing assistant. Help grieving families understand funeral costs and their rights.
+  const systemPrompt = `You are Eulogy's compassionate funeral pricing assistant. You help grieving families find funeral homes in their area, understand costs, and know their legal rights.
+
+DATABASE COVERAGE: Our database has 3,000+ US funeral homes with names, addresses, and phone numbers. Pricing data is available for a growing subset — when a home shows "call to request their GPL," that means pricing isn't in our system yet but the home exists and can be contacted.
 
 KEY LEGAL FACTS:
-- The FTC Funeral Rule requires funeral homes to provide a General Price List (GPL) to anyone who asks — they cannot refuse.
-- Families can supply their own casket and the funeral home must accept it.
-- Embalming is NOT legally required in most states.
-- You can decline any service you don't want.
+- The FTC Funeral Rule requires funeral homes to provide a General Price List (GPL) to ANYONE who asks — they cannot legally refuse.
+- Families can supply their own casket (bought online) and the funeral home must accept it.
+- Embalming is NOT legally required in most US states.
+- You can decline any individual service.
+- Typical direct cremation: $700–$2,500. Traditional burial: $7,000–$15,000.
 
-${priceContext}
+${priceContext ? priceContext : "No location set yet — see instructions below."}
 
-RESPONSE RULES:
-- Be warm, brief, and scannable. Use bullet points.
-- Highlight the cheapest option when comparing prices.
-- Warn about common upsells (unnecessary embalming, expensive caskets).
-- If no price data exists for their area, tell them to call and ask for the GPL by name.`;
+BEHAVIOR RULES:
+1. If the user hasn't provided a city, state, or ZIP code, ask for it before answering location-based questions. Say something like: "To find funeral homes near you, what city or ZIP code are you in?"
+2. If you have local homes (even without pricing), list them with their phone numbers so families can call.
+3. For homes without pricing in our database, tell the user to call and specifically ask for the "General Price List" — the funeral home is legally required to provide it.
+4. Be warm, brief, and use bullet points.
+5. Always highlight the cheapest option when prices are available.
+6. Warn about common upsells: unnecessary embalming, overpriced caskets, "package deals" that bundle unwanted services.`;
 
-  // Keep last 6 messages, ensure history starts with user role
+  // Keep last 6 messages, strip leading assistant messages for the model
   const recent = messages.slice(-6);
   const firstUserIdx = recent.findIndex((m: { role: string }) => m.role === "user");
   const history = (firstUserIdx === -1 ? [] : recent.slice(firstUserIdx)).map(
