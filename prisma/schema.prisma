@@ -1,0 +1,70 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model FuneralHome {
+  id          String   @id @default(cuid())
+  name        String
+  address     String
+  city        String
+  state       String
+  zip         String
+  phone       String?
+  email       String?
+  website     String?
+  verified    Boolean  @default(false)
+  dataSource  String   @default("SELF_REPORTED")
+  lat         Float?
+  lng         Float?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  services    Service[]
+  gplRequests GplRequest[]
+  scraperJobs ScraperJob[]
+}
+
+model Service {
+  id            String      @id @default(cuid())
+  funeralHomeId String
+  category      String
+  name          String
+  price         Float?
+  priceMin      Float?
+  priceMax      Float?
+  description   String?
+  createdAt     DateTime    @default(now())
+
+  funeralHome   FuneralHome @relation(fields: [funeralHomeId], references: [id], onDelete: Cascade)
+}
+
+model GplRequest {
+  id                  String      @id @default(cuid())
+  funeralHomeId       String
+  emailAddress        String
+  status              String      @default("PENDING")
+  emailSentAt         DateTime?
+  responseReceivedAt  DateTime?
+  notes               String?
+  createdAt           DateTime    @default(now())
+
+  funeralHome         FuneralHome @relation(fields: [funeralHomeId], references: [id], onDelete: Cascade)
+}
+
+model ScraperJob {
+  id            String      @id @default(cuid())
+  url           String
+  funeralHomeId String?
+  status        String      @default("PENDING")
+  lastRun       DateTime?
+  results       String?
+  error         String?
+  createdAt     DateTime    @default(now())
+
+  funeralHome   FuneralHome? @relation(fields: [funeralHomeId], references: [id], onDelete: SetNull)
+}
