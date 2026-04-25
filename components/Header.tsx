@@ -7,6 +7,7 @@ import Image from "next/image";
 
 const NAV = [
   { href: "/compare",  label: "Compare" },
+  { href: "/explore",  label: "Explore" },
   { href: "/register", label: "List a Home" },
 ];
 
