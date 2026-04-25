@@ -1,8 +1,8 @@
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { prisma } from "@/lib/prisma";
 import { NextRequest } from "next/server";
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
 
 export async function POST(request: NextRequest) {
   const { messages, location } = await request.json();
@@ -60,24 +60,29 @@ GUIDELINES:
 - Always mention that the FTC Funeral Rule gives them the right to get itemized pricing.
 - Keep responses concise and scannable with bullet points.`;
 
-  const stream = await client.messages.stream({
-    model: "claude-sonnet-4-6",
-    max_tokens: 1024,
-    system: systemPrompt,
-    messages,
+  const model = genAI.getGenerativeModel({
+    model: "gemini-1.5-flash",
+    systemInstruction: systemPrompt,
   });
+
+  // Convert message history to Gemini format (exclude the last user message)
+  const history = messages.slice(0, -1).map((m: { role: string; content: string }) => ({
+    role: m.role === "assistant" ? "model" : "user",
+    parts: [{ text: m.content }],
+  }));
+
+  const lastMessage = messages[messages.length - 1];
+
+  const chat = model.startChat({ history });
+  const result = await chat.sendMessageStream(lastMessage.content);
 
   const encoder = new TextEncoder();
 
   const readableStream = new ReadableStream({
     async start(controller) {
-      for await (const chunk of stream) {
-        if (
-          chunk.type === "content_block_delta" &&
-          chunk.delta.type === "text_delta"
-        ) {
-          controller.enqueue(encoder.encode(chunk.delta.text));
-        }
+      for await (const chunk of result.stream) {
+        const text = chunk.text();
+        if (text) controller.enqueue(encoder.encode(text));
       }
       controller.close();
     },
