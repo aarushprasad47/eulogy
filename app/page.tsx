@@ -89,19 +89,20 @@ export default function Home() {
             <div className="hidden lg:block animate-fade-in" style={{ animationDelay: "0.3s" }}>
               <div
                 style={{
-                  width: 380,
-                  height: 500,
-                  borderRadius: "190px 190px 0 0",
+                  width: 420,
+                  height: 540,
+                  borderRadius: "210px 210px 0 0",
                   overflow: "hidden",
                   position: "relative",
                   boxShadow: "0 20px 60px -12px rgba(68,114,168,0.22)",
                 }}
               >
                 <Image
-                  src="/hero-casket.png"
+                  src="/hero-lily.png"
                   alt="Funeral service"
                   fill
-                  className="object-cover object-center"
+                  className="object-cover"
+                  style={{ objectPosition: "center 30%" }}
                 />
               </div>
             </div>

@@ -15,7 +15,14 @@ export default function Header() {
   const path = usePathname();
 
   return (
-    <header className="sticky top-0 z-40" style={{ background: "transparent" }}>
+    <header
+      className="sticky top-0 z-40"
+      style={{
+        background: "rgba(238,242,248,0.55)",
+        backdropFilter: "blur(20px)",
+        WebkitBackdropFilter: "blur(20px)",
+      }}
+    >
       <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-2">
 
         {/* Logo — large */}
