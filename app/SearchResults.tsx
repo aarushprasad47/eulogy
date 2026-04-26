@@ -29,7 +29,7 @@ export default async function SearchResults({ searchParams }: Props) {
     include: {
       services: category ? { where: { category } } : { take: 6 },
     },
-    orderBy: [{ services: { _count: "desc" } }, { name: "asc" }],
+    orderBy: [{ services: { _count: "desc" } as any }, { name: "asc" }],
     take: 24,
   });
 

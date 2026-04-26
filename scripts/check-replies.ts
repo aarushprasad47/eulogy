@@ -1,39 +1,30 @@
 /**
  * Polls Gmail IMAP inbox for GPL replies, parses pricing data,
- * and stores extracted services in the database.
- *
- * Strategy:
- *   - PDF / plain-text replies → regex price extraction (no AI, no quota)
- *   - Image attachments        → Gemini Vision (fallback, only when needed)
+ * and stores extracted services in MongoDB.
  *
  * Run once:  npx tsx --env-file=.env.local scripts/check-replies.ts
  * Poll loop: npx tsx --env-file=.env.local scripts/check-replies.ts --watch
  */
 
-import { createClient } from "@libsql/client";
+import { MongoClient, ObjectId } from "mongodb";
 import { ImapFlow } from "imapflow";
 import { simpleParser } from "mailparser";
 import pdfParse = require("pdf-parse");
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import nodemailer from "nodemailer";
 
-const db = createClient({
-  url: process.env.TURSO_DATABASE_URL!,
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
-
-const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "");
+const mongo = new MongoClient(process.env.MONGODB_URI!);
+const db = () => mongo.db();
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function cuid(): string {
-  return "gpl" + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+function mkid(): string {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 11);
 }
 
 function guessCategory(name: string): string {
   const l = name.toLowerCase();
   if (l.includes("basic service")) return "BASIC_SERVICES";
-  if (l.includes("direct cremat")) return "DIRECT_CREMATION";
-  if (l.includes("cremat")) return "DIRECT_CREMATION";
+  if (l.includes("direct cremat") || l.includes("cremat")) return "DIRECT_CREMATION";
   if (l.includes("immediate burial")) return "IMMEDIATE_BURIAL";
   if (l.includes("forward")) return "FORWARDING_REMAINS";
   if (l.includes("receiv")) return "RECEIVING_REMAINS";
@@ -58,35 +49,30 @@ interface ParsedService {
   priceMax: number | null;
 }
 
-// ── Regex-based price extraction (no AI required) ──────────────────────────
+// ── Regex-based price extraction ───────────────────────────────────────────
 
 function extractPricesWithRegex(text: string): ParsedService[] {
   const services: ParsedService[] = [];
   const seen = new Set<string>();
-
-  // Normalize whitespace and split into lines
   const lines = text.replace(/\r\n/g, "\n").split("\n");
 
   for (const line of lines) {
     const trimmed = line.trim();
     if (trimmed.length < 5 || trimmed.length > 200) continue;
 
-    // Look for lines containing a dollar amount
     const rangeMatch = trimmed.match(/\$([0-9,]+)\s*[-–—]\s*\$([0-9,]+)/);
     const singleMatch = trimmed.match(/\$\s*([0-9,]+(?:\.[0-9]{2})?)/);
     if (!rangeMatch && !singleMatch) continue;
 
-    // Extract the name by stripping the price portion
     const name = trimmed
       .replace(/\$[\s0-9,.\-–—]+/g, "")
-      .replace(/\.{2,}/g, "") // strip dot leaders (........$1,234)
+      .replace(/\.{2,}/g, "")
       .replace(/\s{2,}/g, " ")
       .trim()
       .slice(0, 120);
 
     if (name.length < 4 || seen.has(name)) continue;
 
-    // Require at least one funeral-related keyword (reduces noise)
     const funeral = ["cremat", "burial", "funeral", "casket", "urn", "embalm",
                      "transfer", "service", "hearse", "limo", "viewing", "grave",
                      "basic", "prepar", "vault", "receiv", "forward", "remain",
@@ -96,86 +82,48 @@ function extractPricesWithRegex(text: string): ParsedService[] {
     seen.add(name);
 
     if (rangeMatch) {
-      services.push({
-        name,
-        price: null,
+      services.push({ name, price: null,
         priceMin: parseFloat(rangeMatch[1].replace(/,/g, "")),
-        priceMax: parseFloat(rangeMatch[2].replace(/,/g, "")),
-      });
+        priceMax: parseFloat(rangeMatch[2].replace(/,/g, "")) });
     } else if (singleMatch) {
-      services.push({
-        name,
+      services.push({ name,
         price: parseFloat(singleMatch[1].replace(/,/g, "")),
-        priceMin: null,
-        priceMax: null,
-      });
+        priceMin: null, priceMax: null });
     }
   }
 
   return services.slice(0, 50);
 }
 
-// ── Gemini Vision for image attachments (fallback only) ───────────────────
-
-async function extractPricesFromImage(buf: Buffer, mimeType: string): Promise<ParsedService[]> {
-  try {
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-    const prompt = `This is a funeral home General Price List. Extract every service and its price.
-Return ONLY a valid JSON array. Each item: {"name":"...","price":number|null,"priceMin":number|null,"priceMax":number|null}.
-Use priceMin/priceMax for ranges, price for single values. Strip $ and commas. JSON only, no markdown.`;
-
-    const result = await model.generateContent([
-      prompt,
-      { inlineData: { data: buf.toString("base64"), mimeType } },
-    ]);
-    const raw = result.response.text().trim().replace(/^```json?\n?/, "").replace(/\n?```$/, "");
-    const parsed = JSON.parse(raw) as ParsedService[];
-    return Array.isArray(parsed) ? parsed.slice(0, 50) : [];
-  } catch {
-    return [];
-  }
-}
-
 // ── PDF text extraction ────────────────────────────────────────────────────
 
 async function extractTextFromPdf(buffer: Buffer): Promise<string> {
-  try {
-    return (await pdfParse(buffer)).text || "";
-  } catch {
-    return "";
-  }
+  try { return (await pdfParse(buffer)).text || ""; }
+  catch { return ""; }
 }
 
-// ── Match reply to a GplRequest ────────────────────────────────────────────
+// ── Match reply to a GplRequest in MongoDB ─────────────────────────────────
 
 async function findGplRequest(fromEmail: string, subject: string, inReplyTo: string | null) {
-  // 1. By In-Reply-To header (stored as Message-ID in notes column)
+  const col = db().collection("GplRequest");
+
   if (inReplyTo) {
-    const row = await db.execute({
-      sql: "SELECT * FROM GplRequest WHERE notes=? LIMIT 1",
-      args: [inReplyTo],
-    });
-    if (row.rows.length > 0) return row.rows[0];
+    const row = await col.findOne({ notes: inReplyTo });
+    if (row) return row;
   }
 
-  // 2. By [Ref:ID] in subject
   const refMatch = subject.match(/\[Ref:([a-z0-9]+)\]/i);
   if (refMatch) {
-    const row = await db.execute({
-      sql: "SELECT * FROM GplRequest WHERE id=? LIMIT 1",
-      args: [refMatch[1]],
-    });
-    if (row.rows.length > 0) return row.rows[0];
+    const row = await col.findOne({ _id: refMatch[1] as any });
+    if (row) return row;
   }
 
-  // 3. By sender email
-  const row = await db.execute({
-    sql: "SELECT * FROM GplRequest WHERE emailAddress=? AND status='SENT' ORDER BY emailSentAt DESC LIMIT 1",
-    args: [fromEmail],
-  });
-  if (row.rows.length > 0) return row.rows[0];
-
-  return null;
+  // Match by sender email (any status)
+  const row = await col.findOne(
+    { emailAddress: fromEmail },
+    { sort: { emailSentAt: -1 } }
+  );
+  return row;
 }
 
 // ── Process a single reply ─────────────────────────────────────────────────
@@ -194,19 +142,15 @@ async function processReply(source: Buffer): Promise<boolean> {
     return false;
   }
 
-  const reqId = req.id as string;
+  const reqId = req._id;
   const funeralHomeId = req.funeralHomeId as string;
 
-  const homeRow = await db.execute({
-    sql: "SELECT name FROM FuneralHome WHERE id=?",
-    args: [funeralHomeId],
-  });
-  const homeName = (homeRow.rows[0]?.name as string) || "Unknown";
+  const homeDoc = await db().collection("FuneralHome").findOne({ _id: funeralHomeId as any });
+  const homeName = (homeDoc?.name as string) || "Unknown";
   console.log(`    → Matched: ${homeName}`);
 
   let services: ParsedService[] = [];
 
-  // Process attachments
   for (const att of mail.attachments || []) {
     const mime = att.contentType.toLowerCase();
     const filename = att.filename?.toLowerCase() || "";
@@ -216,19 +160,15 @@ async function processReply(source: Buffer): Promise<boolean> {
       const text = await extractTextFromPdf(att.content);
       services = extractPricesWithRegex(text);
       console.log(`    Regex extracted ${services.length} services from PDF`);
-    } else if (mime.startsWith("image/")) {
-      console.log(`    Parsing image with Gemini Vision: ${att.filename || mime}`);
-      services = await extractPricesFromImage(att.content, mime);
-      console.log(`    Gemini extracted ${services.length} services from image`);
     }
 
     if (services.length > 0) break;
   }
 
-  // Fallback: regex on email body text
+  // Fallback: regex on body text
   if (services.length === 0 && bodyText.trim().length > 50) {
     services = extractPricesWithRegex(bodyText);
-    if (services.length > 0) console.log(`    Regex extracted ${services.length} services from body text`);
+    if (services.length > 0) console.log(`    Regex extracted ${services.length} services from body`);
   }
 
   if (services.length === 0) {
@@ -236,30 +176,66 @@ async function processReply(source: Buffer): Promise<boolean> {
     return false;
   }
 
-  const now = new Date().toISOString();
+  const now = new Date();
+  const embeddedServices = services
+    .filter(s => s.name && s.name.length <= 200 && (s.price != null || s.priceMin != null))
+    .map(s => ({
+      id: mkid(),
+      funeralHomeId,
+      category: guessCategory(s.name),
+      name: s.name,
+      price: s.price,
+      priceMin: s.priceMin,
+      priceMax: s.priceMax,
+      description: null,
+      createdAt: now,
+    }));
 
-  for (const s of services) {
-    if (!s.name || s.name.length > 200) continue;
-    if (s.price == null && s.priceMin == null) continue;
+  // Push services into the embedded array
+  await db().collection("FuneralHome").updateOne(
+    { _id: funeralHomeId as any },
+    {
+      $push: { services: { $each: embeddedServices } } as any,
+      $set: { verified: true, dataSource: "GPL_EMAIL", updatedAt: now },
+    }
+  );
 
-    await db.execute({
-      sql: `INSERT OR IGNORE INTO Service
-              (id, funeralHomeId, category, name, price, priceMin, priceMax, description, createdAt)
-            VALUES (?,?,?,?,?,?,?,?,?)`,
-      args: [cuid(), funeralHomeId, guessCategory(s.name), s.name, s.price, s.priceMin, s.priceMax, null, now],
+  await db().collection("GplRequest").updateOne(
+    { _id: reqId },
+    { $set: { status: "RESPONDED", responseReceivedAt: now } }
+  );
+
+  console.log(`    ✓ Stored ${embeddedServices.length} services for ${homeName}`);
+
+  // Send confirmation email back to the submitter
+  try {
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST || "smtp.gmail.com",
+      port: parseInt(process.env.SMTP_PORT || "587"),
+      secure: false,
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
     });
+    await transporter.sendMail({
+      from: `"Eulogy Team" <${process.env.SMTP_USER}>`,
+      to: fromEmail,
+      subject: `Thank you for submitting your GPL — ${homeName}`,
+      html: `
+<div style="font-family: Georgia, serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.7;">
+  <div style="border-bottom: 2px solid #6b7280; padding-bottom: 16px; margin-bottom: 24px;">
+    <h2 style="margin: 0; font-size: 20px; font-weight: 600;">Eulogy — Funeral Price Transparency</h2>
+  </div>
+  <p>Thank you for submitting your General Price List.</p>
+  <p>We successfully extracted <strong>${embeddedServices.length} service(s)</strong> from your submission for <strong>${homeName}</strong> and added them to our database.</p>
+  <p>Families in your area can now compare your prices at:<br>
+  <a href="https://eulogy.vercel.app" style="color: #4472A8;">eulogy.vercel.app</a></p>
+  <p>Best regards,<br><strong>The Eulogy Team</strong></p>
+</div>`,
+    });
+    console.log(`    ✉ Confirmation sent to ${fromEmail}`);
+  } catch (err) {
+    console.error(`    ✗ Could not send confirmation:`, err);
   }
 
-  await db.execute({
-    sql: "UPDATE GplRequest SET status='RESPONDED', responseReceivedAt=? WHERE id=?",
-    args: [now, reqId],
-  });
-  await db.execute({
-    sql: "UPDATE FuneralHome SET verified=1, dataSource='GPL_EMAIL', updatedAt=? WHERE id=?",
-    args: [now, funeralHomeId],
-  });
-
-  console.log(`    ✓ Stored ${services.length} services for ${homeName}`);
   return true;
 }
 
@@ -294,16 +270,12 @@ async function checkInbox() {
       if (fromEmail === process.env.SMTP_USER?.toLowerCase()) continue;
 
       const subject = msg.envelope.subject || "";
-      const inReplyTo = msg.envelope.inReplyTo || null;
+      const inReplyTo = (msg.envelope as any).inReplyTo || null;
 
-      // Pre-filter: only process emails that look like replies to us
       const hasRef = /\[Ref:[a-z0-9]+\]/i.test(subject) || !!inReplyTo;
       if (!hasRef) {
-        const match = await db.execute({
-          sql: "SELECT id FROM GplRequest WHERE emailAddress=? LIMIT 1",
-          args: [fromEmail],
-        });
-        if (match.rows.length === 0) continue;
+        const row = await db().collection("GplRequest").findOne({ emailAddress: fromEmail });
+        if (!row) continue;
       }
 
       checked++;
@@ -322,11 +294,13 @@ async function checkInbox() {
 // ── Main ───────────────────────────────────────────────────────────────────
 
 async function main() {
+  await mongo.connect();
+
   const watchMode = process.argv.includes("--watch");
 
   if (watchMode) {
-    const INTERVAL = 5 * 60 * 1000;
-    console.log(`Watch mode: polling inbox every 5 minutes...\n`);
+    const INTERVAL = 60 * 1000; // poll every 60s during demo
+    console.log(`Watch mode: polling inbox every 60 seconds...\n`);
     while (true) {
       try { await checkInbox(); } catch (err) { console.error("Poll error:", err); }
       await new Promise(r => setTimeout(r, INTERVAL));
@@ -335,15 +309,12 @@ async function main() {
     await checkInbox();
   }
 
-  const stats = await db.execute(`
-    SELECT
-      (SELECT COUNT(*) FROM GplRequest WHERE status='SENT') as sent,
-      (SELECT COUNT(*) FROM GplRequest WHERE status='RESPONDED') as responded,
-      (SELECT COUNT(*) FROM FuneralHome WHERE dataSource='GPL_EMAIL') as verified,
-      (SELECT COUNT(*) FROM Service) as services
-  `);
-  const s = stats.rows[0];
-  console.log(`\nDB: ${s.sent} sent, ${s.responded} responded, ${s.verified} verified homes, ${s.services} total services`);
+  const homes = await db().collection("FuneralHome").countDocuments();
+  const gplSent = await db().collection("GplRequest").countDocuments({ status: "SENT" });
+  const gplResponded = await db().collection("GplRequest").countDocuments({ status: "RESPONDED" });
+  console.log(`\nDB: ${homes} homes, ${gplSent} GPL sent, ${gplResponded} responded`);
+
+  await mongo.close();
 }
 
 main().catch(console.error);

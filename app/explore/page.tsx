@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { prisma } from "@/lib/prisma";
 import { MapPin } from "lucide-react";
 import type { MapHome } from "@/components/ExploreMap";

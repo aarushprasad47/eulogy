@@ -31,13 +31,30 @@ export async function GET(request: NextRequest) {
   return Response.json(homes);
 }
 
+async function geocode(address: string, city: string, state: string, zip: string): Promise<{ lat: number; lng: number } | null> {
+  try {
+    const q = encodeURIComponent(`${address}, ${city}, ${state} ${zip}, USA`);
+    const res = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${q}&format=json&limit=1`,
+      { headers: { "User-Agent": "Eulogy/1.0 (eulogy.vercel.app)" } }
+    );
+    const data = await res.json();
+    if (data[0]) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  } catch {}
+  return null;
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json();
   const { services, ...homeData } = body;
 
+  const coords = await geocode(homeData.address ?? "", homeData.city ?? "", homeData.state ?? "", homeData.zip ?? "");
+
   const home = await prisma.funeralHome.create({
     data: {
       ...homeData,
+      lat: coords?.lat ?? null,
+      lng: coords?.lng ?? null,
       dataSource: "SELF_REPORTED",
       services: services
         ? { create: services }

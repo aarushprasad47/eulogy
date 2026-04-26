@@ -43,7 +43,7 @@ async function fetchLocalHomes(location: string) {
           : []),
       ],
     },
-    orderBy: [{ services: { _count: "desc" } }, { name: "asc" }],
+    orderBy: [{ services: { _count: "desc" } as any }, { name: "asc" }],
     take: 10,
   });
 }
