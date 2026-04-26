@@ -8,9 +8,10 @@ import EmailBotButton from "./EmailBotButton";
 import CallButton from "./CallButton";
 
 const SOURCE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
-  SELF_REPORTED: { label: "Self-reported by funeral home", bg: "var(--sage-light)", color: "var(--sage)" },
-  SCRAPED:       { label: "Scraped from website",          bg: "#EEF2FF",           color: "#4F62C4"     },
-  GPL_EMAIL:     { label: "Received via GPL email request", bg: "#F5EEF8",          color: "#8B5CF6"     },
+  SELF_REPORTED: { label: "Self-reported by funeral home",  bg: "var(--sage-light)", color: "var(--sage)" },
+  SCRAPED:       { label: "Scraped from website",           bg: "#EEF2FF",           color: "#4F62C4"     },
+  GPL_EMAIL:     { label: "Received via GPL email request", bg: "#F5EEF8",           color: "#8B5CF6"     },
+  GPL_CALL:      { label: "Collected via phone call",       bg: "#FFF7ED",           color: "#C2610F"     },
 };
 
 export default async function FuneralHomePage({
