@@ -1,19 +1,33 @@
 import { NextRequest } from "next/server";
 
-// Twilio fetches this when the call is answered.
-// Gets a signed ElevenLabs WebSocket URL and streams audio through it.
 async function getSignedUrl(): Promise<string | null> {
-  const agentId = process.env.ELEVENLABS_AGENT_ID;
-  const apiKey  = process.env.ELEVENLABS_API_KEY;
-  if (!agentId || !apiKey) return null;
+  try {
+    const agentId = process.env.ELEVENLABS_AGENT_ID;
+    const apiKey  = process.env.ELEVENLABS_API_KEY;
+    if (!agentId || !apiKey) {
+      console.log("[twiml] ElevenLabs env vars not set, using TTS fallback");
+      return null;
+    }
 
-  const res = await fetch(
-    `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${agentId}`,
-    { headers: { "xi-api-key": apiKey } }
-  );
-  if (!res.ok) return null;
-  const data = await res.json();
-  return data.signed_url ?? null;
+    const res = await fetch(
+      `https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id=${agentId}`,
+      { headers: { "xi-api-key": apiKey } }
+    );
+
+    if (!res.ok) {
+      console.error(`[twiml] ElevenLabs signed URL failed: ${res.status} ${res.statusText}`);
+      const body = await res.text();
+      console.error(`[twiml] ElevenLabs error body: ${body}`);
+      return null;
+    }
+
+    const data = await res.json();
+    console.log("[twiml] Got ElevenLabs signed URL");
+    return data.signed_url ?? null;
+  } catch (err) {
+    console.error("[twiml] getSignedUrl threw:", err);
+    return null;
+  }
 }
 
 async function handler(request: NextRequest) {
@@ -23,7 +37,6 @@ async function handler(request: NextRequest) {
 
   const signedUrl = await getSignedUrl();
 
-  // If ElevenLabs is configured, stream through it
   if (signedUrl) {
     const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
@@ -37,7 +50,7 @@ async function handler(request: NextRequest) {
     return new Response(twiml, { headers: { "Content-Type": "text/xml" } });
   }
 
-  // Fallback: plain TTS if ElevenLabs not configured
+  // Fallback: plain TTS if ElevenLabs not configured or signed URL failed
   const twiml = `<?xml version="1.0" encoding="UTF-8"?>
 <Response>
   <Say voice="Polly.Joanna" language="en-US">
