@@ -5,6 +5,7 @@ import { MapPin, Phone, Globe, Mail, CheckCircle, ArrowLeft, GitCompare } from "
 import { formatPrice, SERVICE_CATEGORIES } from "@/lib/utils";
 import ScraperButton from "./ScraperButton";
 import EmailBotButton from "./EmailBotButton";
+import CallButton from "./CallButton";
 
 const SOURCE_LABELS: Record<string, { label: string; bg: string; color: string }> = {
   SELF_REPORTED: { label: "Self-reported by funeral home", bg: "var(--sage-light)", color: "var(--sage)" },
@@ -123,6 +124,7 @@ export default async function FuneralHomePage({
         >
           {home.website && <ScraperButton homeId={home.id} website={home.website} />}
           {home.email && <EmailBotButton homeId={home.id} email={home.email} />}
+          {home.phone && <CallButton homeId={home.id} phone={home.phone} homeName={home.name} />}
           <Link
             href={`/compare?ids=${home.id}`}
             className="flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors hover:opacity-80"
