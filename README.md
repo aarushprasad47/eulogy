@@ -28,6 +28,15 @@ Conversational assistant powered by Groq's Llama 3.3. Detects location from the 
 ### GPL Email Pipeline
 Sends formal General Price List request emails to funeral homes citing the FTC Funeral Rule. When a funeral home replies with a PDF attachment, the system automatically parses it — extracting every service and price via regex — and adds the data to the database. A confirmation email is sent to the funeral home on successful ingestion.
 
+### AI Phone Calls (Twilio + ElevenLabs)
+Eulogy can autonomously call funeral homes and collect pricing over the phone. Clicking "Call for GPL" on any funeral home detail page:
+1. Triggers a Twilio outbound call to the funeral home's number
+2. When answered, Twilio hands the audio stream to an ElevenLabs Conversational AI agent
+3. The AI introduces itself, asks for prices one by one (cremation, casket, embalming, transfer, etc.), and listens to the responses
+4. After the call ends, ElevenLabs POSTs the full transcript to a webhook
+5. Groq (Llama 3.3) parses the transcript and extracts structured price data as JSON
+6. Prices are written to MongoDB under that funeral home with a `GPL_CALL` data source tag, shown as an orange "Collected via phone call" badge
+
 ### Self-Submit (Funeral Home Registration)
 Funeral homes can submit their own price lists directly through a web form. Addresses are geocoded on submission via OpenStreetMap Nominatim so the home appears on the explore map immediately.
 
@@ -52,6 +61,8 @@ A Python uAgent registered on [agentverse.ai](https://agentverse.ai). Accepts st
 | Type generation | Prisma 7 (schema → TypeScript types only, no runtime queries) |
 | AI — Chat | Groq API (`llama-3.3-70b-versatile`) |
 | AI — Agent | Google Gemini (`gemini-1.5-flash-8b` → `1.5-flash` → `2.0-flash` → Groq fallback) |
+| AI — Phone calls | ElevenLabs Conversational AI (real-time voice agent over WebSocket) |
+| Outbound calling | Twilio (dials number, streams audio to ElevenLabs via TwiML `<Connect><Stream>`) |
 | Agent framework | FetchAI uAgents 0.22.5 |
 | Email sending | Nodemailer + Gmail SMTP |
 | Email receiving | ImapFlow (IMAP) + mailparser |
@@ -71,9 +82,10 @@ A Python uAgent registered on [agentverse.ai](https://agentverse.ai). Accepts st
 2. Web scraper   scripts/scrape-batch.ts    Cheerio scrape of funeral home websites
 3. GPL email     scripts/pipeline-test.ts   Email → PDF reply → regex parse → MongoDB
 4. Self-submit   /register → /api/homes     Funeral home fills out the web form
+5. AI phone call /api/call → /api/call/twiml → ElevenLabs → /api/call/webhook → Groq → MongoDB
 ```
 
-All four paths write to the same `FuneralHome` collection in MongoDB Atlas. Every feature (search, map, compare, chat, Agentverse agent) reads from that single source.
+All five paths write to the same `FuneralHome` collection in MongoDB Atlas. Every feature (search, map, compare, chat, Agentverse agent) reads from that single source.
 
 ---
 
@@ -88,10 +100,13 @@ app/
   homes/[id]/page.tsx    Individual funeral home detail
   register/page.tsx      Funeral home self-submission form
   api/
-    chat/route.ts        Groq streaming chat endpoint
-    homes/route.ts       CRUD + geocoding on create
-    email-bot/route.ts   Trigger GPL email request
-    scraper/route.ts     Trigger web scrape for a single home
+    chat/route.ts              Groq streaming chat endpoint
+    homes/route.ts             CRUD + geocoding on create
+    email-bot/route.ts         Trigger GPL email request
+    scraper/route.ts           Trigger web scrape for a single home
+    call/route.ts              Initiate Twilio outbound call, store CallRecord
+    call/twiml/route.ts        TwiML — connect call audio to ElevenLabs WebSocket
+    call/webhook/route.ts      ElevenLabs post-call webhook — Groq price extraction → MongoDB
 
 lib/
   prisma.ts              MongoDB data layer (Prisma-compatible API)

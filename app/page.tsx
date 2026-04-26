@@ -205,13 +205,14 @@ export default function Home() {
 
       {/* ── How we collect data ──────────────────────────────────────── */}
       <section className="px-6 pb-24 pt-6">
-        <div className="mx-auto max-w-7xl grid gap-8 grid-cols-1 sm:grid-cols-3">
+        <div className="mx-auto max-w-7xl grid gap-8 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4">
           {[
-            { Icon: Shield, title: "Self-Reported",  desc: "Funeral homes that voluntarily list their prices on Eulogy — the most accurate and up-to-date data available." },
-            { Icon: Globe,  title: "Web-Scraped",    desc: "Our system automatically scans funeral home websites for publicly posted GPL pricing information." },
-            { Icon: Mail,   title: "GPL Email Bot",  desc: "We email funeral homes requesting their General Price List, as required under the FTC Funeral Rule." },
-          ].map(({ Icon, title, desc }) => (
-            <div key={title} className="flex items-start gap-4 animate-fade-up" style={{ animationDelay: "0.08s" }}>
+            { Icon: Shield, title: "Self-Reported",  desc: "Funeral homes that voluntarily list their prices on Eulogy — the most accurate and up-to-date data available.", delay: "0.06s" },
+            { Icon: Globe,  title: "Web-Scraped",    desc: "Our system automatically scans funeral home websites for publicly posted GPL pricing information.",               delay: "0.10s" },
+            { Icon: Mail,   title: "GPL Email Bot",  desc: "We email funeral homes requesting their General Price List, as required under the FTC Funeral Rule.",             delay: "0.14s" },
+            { Icon: Phone,  title: "AI Phone Calls", desc: "Our AI agent calls funeral homes directly, conducts a live pricing interview, and transcribes the results automatically.", delay: "0.18s" },
+          ].map(({ Icon, title, desc, delay }) => (
+            <div key={title} className="flex items-start gap-4 animate-fade-up" style={{ animationDelay: delay }}>
               <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl" style={{ background: "rgba(255,255,255,0.65)", backdropFilter: "blur(6px)", border: "1px solid var(--border)" }}>
                 <Icon className="h-5 w-5" style={{ color: "var(--navy)" }} />
               </div>
