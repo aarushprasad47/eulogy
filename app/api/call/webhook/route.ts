@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { MongoClient } from "mongodb";
 import Groq from "groq-sdk";
+import crypto from "crypto";
 
 const mongo = new MongoClient(process.env.MONGODB_URI!);
 const groq  = new Groq({ apiKey: process.env.GROQ_API_KEY });
@@ -59,8 +60,32 @@ JSON only — no markdown, no explanation.`,
   }
 }
 
+function verifySignature(rawBody: string, header: string | null, secret: string): boolean {
+  if (!header) return false;
+  // ElevenLabs sends: t=<timestamp>,v1=<hmac>
+  const parts = Object.fromEntries(header.split(",").map((p) => p.split("=")));
+  const timestamp = parts["t"];
+  const signature = parts["v1"];
+  if (!timestamp || !signature) return false;
+  const expected = crypto
+    .createHmac("sha256", secret)
+    .update(`${timestamp}.${rawBody}`)
+    .digest("hex");
+  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+}
+
 export async function POST(request: NextRequest) {
-  const body = await request.json();
+  const rawBody = await request.text();
+
+  const webhookSecret = process.env.ELEVENLABS_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const sig = request.headers.get("elevenlabs-signature");
+    if (!verifySignature(rawBody, sig, webhookSecret)) {
+      return Response.json({ error: "Invalid signature" }, { status: 401 });
+    }
+  }
+
+  const body = JSON.parse(rawBody);
 
   // ElevenLabs sends different event types — only process post-call summary
   const eventType = body.type || body.event_type;
